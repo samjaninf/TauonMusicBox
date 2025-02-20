@@ -1285,6 +1285,7 @@ class TrackClass:
 		self.disc_number:  str = ""
 		self.disc_total:   str = ""
 		self.lyrics:       str = ""
+		self.synced:       str = ""
 
 		self.lfm_friend_likes = set()
 		self.lfm_scrobbles: int = 0
@@ -6392,7 +6393,7 @@ class TimedLyricsRen:
 			bg = colours.playlist_panel_background
 			font_size = 17
 			spacing = round(23 * gui.scale)
-
+		bg[3] = 255
 		test_time = get_real_time()
 
 		if pctl.track_queue[pctl.queue_step] == index:
@@ -13280,9 +13281,9 @@ class TopPanel:
 			colour = [250, 250, 250, 255]
 			if colours.lm:
 				colour = [10, 10, 10, 255]
-			text = _("Tauon Music Box SHUFFLE!")
+			text = _("Tauon SHUFFLE!")
 			if prefs.album_shuffle_lock_mode:
-				text = _("Tauon Music Box ALBUM SHUFFLE!")
+				text = _("ALBUM SHUFFLE")
 			ddt.text((window_size[0] // 2, 8 * gui.scale, 2), text, colour, 212, bg=colours.top_panel_background)
 		if gui.top_bar_mode2:
 			tr = pctl.playing_object()
@@ -13826,8 +13827,6 @@ class TopPanel:
 			ddt.text((x + self.tab_text_start_space, y + self.tab_text_y_offset), text, fg, self.tab_text_font, bg=bg)
 
 			# Drop pulse
-			if gui.ext_drop_mode and coll(rect):
-				ddt.rect_si(rect, [50, 230, 250, 255], round(3 * gui.scale))
 
 			if gui.pl_pulse and gui.drop_playlist_target == i:
 				if tab_pulse.render(x, y + self.height - bar_highlight_size, tab_width, bar_highlight_size, r=200,
@@ -13845,7 +13844,7 @@ class TopPanel:
 					else:
 						ddt.rect((x, y, bar_highlight_size, gui.panelY2), [80, 160, 200, 255])
 
-				elif quick_drag is True and pl_is_mut(i):
+				elif (quick_drag or gui.ext_drop_mode) is True and pl_is_mut(i):
 					ddt.rect((x, y + self.height - bar_highlight_size, tab_width, bar_highlight_size), [80, 200, 180, 255])
 			# Drag yellow line highlight if single track already in playlist
 			elif quick_drag and not point_proximity_test(gui.drag_source_position, mouse_position, 15 * gui.scale):
@@ -13876,7 +13875,7 @@ class TopPanel:
 
 		# Quick drag single track onto bar to create new playlist function and indicator
 		if prefs.tabs_on_top:
-			if quick_drag and mouse_position[0] > x and mouse_position[1] < gui.panelY and quick_d_timer.get() > 1:
+			if (quick_drag or gui.ext_drop_mode) and mouse_position[0] > x and mouse_position[1] < gui.panelY and quick_d_timer.get() > 1:
 				ddt.rect((x, y, 2 * gui.scale, gui.panelY2), [80, 200, 180, 255])
 
 				if mouse_up:
@@ -15864,7 +15863,7 @@ class MiniMode3:
 			off = round(4 * gui.scale)
 
 			drop_shadow.render(ins + off, ins + off, wid + off * 2, wid + off * 2)
-			ddt.rect((ins, ins, wid, wid), [20, 20, 20, 255])
+			ddt.rect((ins + 1, ins + 1, wid - 1, wid - 1), [20, 20, 20, 255])
 			album_art_gen.display(track, (ins, ins), (wid, wid))
 
 			line1c = [255, 255, 255, 255] #colours.mini_mode_text_1
@@ -16121,9 +16120,6 @@ class StandardPlaylist:
 
 		rect = (left, gui.panelY, width, window_size[1] - (gui.panelBY + gui.panelY))
 		ddt.rect(rect, colours.playlist_panel_background)
-
-		if gui.ext_drop_mode and coll(rect):
-			ddt.rect(rect, [255,0,0,255])
 
 		# This draws an optional background image
 		if pl_bg:
@@ -18873,7 +18869,7 @@ class PlaylistBox:
 			# # If mouse over
 			if hit:
 				# Draw indicator for dragging tracks
-				if quick_drag and pl_is_mut(i):
+				if (quick_drag or gui.ext_drop_mode) and pl_is_mut(i):
 					ddt.rect((tab_start + tab_width - self.indicate_w, yy, self.indicate_w, self.tab_h), [80, 200, 180, 255])
 
 				# Draw indicators for moving tab
@@ -18929,7 +18925,7 @@ class PlaylistBox:
 		fields.add(rect)
 
 		if coll(rect):
-			if quick_drag:
+			if quick_drag or gui.ext_drop_mode:
 				ddt.rect((tab_start, yy, tab_width, self.indicate_w), [80, 160, 200, 255])
 				if mouse_up:
 					drop_tracks_to_new_playlist(shift_selection)
@@ -21030,8 +21026,10 @@ class MetaBox:
 
 	def lyrics(self, x, y, w, h, track: TrackClass):
 
-		ddt.rect((x, y, w, h), colours.side_panel_background)
-		ddt.text_background_colour = colours.side_panel_background
+		bg = colours.side_panel_background
+		bg[3] = 255
+		ddt.rect((x, y, w, h), bg)
+		ddt.text_background_colour = bg
 
 		if not track:
 			return
@@ -21089,7 +21087,10 @@ class MetaBox:
 
 	def draw(self, x, y, w, h, track=None):
 
-		ddt.rect((x, y, w, h), colours.side_panel_background)
+		bg = colours.side_panel_background
+		bg[3] = 255
+		ddt.text_background_colour = bg
+		ddt.rect((x, y, w, h), bg)
 
 		if not track:
 			return
@@ -24085,19 +24086,12 @@ def load_prefs():
 def auto_scale() -> None:
 
 	old = prefs.scale_want
-
 	if prefs.x_scale:
-		if True: #sss.subsystem in (SDL_SYSWM_WAYLAND, SDL_SYSWM_COCOA, SDL_SYSWM_UNKNOWN):
-			prefs.scale_want = window_size[0] / logical_size[0]
-			if old != prefs.scale_want:
-				logging.info("Applying scale based on buffer size")
-		# elif sss.subsystem == SDL_SYSWM_X11:
-		# 	if xdpi > 40:
-		# 		prefs.scale_want = xdpi / 96
-		# 		if old != prefs.scale_want:
-		# 			logging.info("Applying scale based on xft setting")
+		prefs.scale_want = window_size[0] / logical_size[0]
 
 	prefs.scale_want = round(round(prefs.scale_want / 0.05) * 0.05, 2)
+	if prefs.x_scale and old != prefs.scale_want:
+		logging.info("Applying scale based on buffer size")
 
 	if prefs.scale_want == 0.95:
 		prefs.scale_want = 1.0
@@ -24112,12 +24106,12 @@ def auto_scale() -> None:
 		logging.info(f"Using UI scale: {prefs.scale_want}")
 
 	if prefs.scale_want < 0.5:
-		prefs.scale_want = 1.0
+		prefs.scale_want = 0.5
 
-	if window_size[0] < (560 * prefs.scale_want) * 0.9 or window_size[1] < (330 * prefs.scale_want) * 0.9:
-		logging.info("Window overscale!")
-		show_message(_("Detected unsuitable UI scaling."), _("Scaling setting reset to 1x"))
-		prefs.scale_want = 1.0
+	# if window_size[0] < (560 * prefs.scale_want) * 0.9 or window_size[1] < (330 * prefs.scale_want) * 0.9:
+	# 	logging.info("Window overscale!")
+	# 	show_message(_("Detected unsuitable UI scaling."), _("Scaling setting reset to 1x"))
+	# 	prefs.scale_want = 1.0
 
 def scale_assets(scale_want: int, force: bool = False) -> None:
 	global scaled_asset_directory
@@ -25647,6 +25641,8 @@ def prime_fonts():
 	ddt.prime_font(standard_font, 13, 516)
 
 def find_synced_lyric_data(track: TrackClass) -> list[str] | None:
+	if track.synced:
+		return track.synced.splitlines()
 	if track.is_network:
 		return None
 
@@ -26511,6 +26507,11 @@ def toggle_shuffle_layout(albums=False):
 		if not gui.shuffle_was_showcase:
 			exit_combo()
 
+def toggle_shuffle_layout_deco():
+	if not prefs.shuffle_lock:
+		return [colours.menu_text, colours.menu_background, _("Shuffle Lockdown")]
+	return [colours.menu_text, colours.menu_background, _("Exit Shuffle Lockdown")]
+
 def toggle_shuffle_layout_albums():
 	toggle_shuffle_layout(albums=True)
 
@@ -27019,10 +27020,14 @@ def get_lyric_fire(track_object: TrackClass, silent: bool = False) -> str | None
 			func = lyric_sources[name]
 
 			try:
-				lyrics = func(s_artist, s_title)
-				if lyrics:
-					logging.info(f"Found lyrics from {name}")
-					track_object.lyrics = lyrics
+				lyrics, synced = func(s_artist, s_title)
+				if lyrics or synced:
+					if lyrics:
+						logging.info(f"Found lyrics from {name}")
+						track_object.lyrics = lyrics
+					if synced:
+						logging.info(f"Found synced lyrics")
+						track_object.synced = synced
 					found = True
 					break
 			except Exception:
@@ -36784,18 +36789,9 @@ def set_mini_mode():
 
 	sdl3.SDL_SetWindowResizable(t_window, False)
 	sdl3.SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
-	sdl3.SDL_SyncWindow(t_window)
-	time.sleep(0.05)
 
 	if mini_mode.save_position:
 		sdl3.SDL_SetWindowPosition(t_window, mini_mode.save_position[0], mini_mode.save_position[1])
-
-	sdl3.SDL_PumpEvents()
-	i_x = pointer(c_int(0))
-	i_y = pointer(c_int(0))
-	sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
-	window_size[0] = i_x.contents.value
-	window_size[1] = i_y.contents.value
 
 	gui.update += 3
 
@@ -36829,7 +36825,6 @@ def restore_full_mode():
 	gui.mode = 1
 
 	sdl3.SDL_SyncWindow(t_window)
-	time.sleep(0.05)
 	sdl3.SDL_PumpEvents()
 
 	global mouse_down
@@ -36847,11 +36842,6 @@ def restore_full_mode():
 		logical_size[1] = i_y.contents.value
 
 		#logging.info(window_size)
-
-	sdl3.SDL_PumpEvents()
-	sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
-	window_size[0] = i_x.contents.value
-	window_size[1] = i_y.contents.value
 
 	gui.update_layout()
 	if prefs.art_bg:
@@ -41318,7 +41308,7 @@ else:
 
 x_menu.add(MenuItem("LFM", lastfm.toggle, last_fm_menu_deco, icon=listen_icon, show_test=lastfm_menu_test))
 
-x_menu.add(MenuItem(_("Exit Shuffle Lockdown"), toggle_shuffle_layout, show_test=exit_shuffle_layout))
+x_menu.add(MenuItem(_("Exit Shuffle Lockdown"), toggle_shuffle_layout, toggle_shuffle_layout_deco)) #show_test=exit_shuffle_layout))
 
 x_menu.add(MenuItem(_("Donate"), open_donate_link))
 
@@ -41917,6 +41907,8 @@ while pctl.running:
 			mouse_moved = True
 			gui.mouse_unknown = False
 			gui.ext_drop_mode = True
+			gui.pl_update += 1
+			gui.update += 2
 		elif event.type == sdl3.SDL_EVENT_DROP_COMPLETE:
 			gui.ext_drop_mode = False
 		elif event.type == sdl3.SDL_EVENT_DROP_FILE:
@@ -42146,30 +42138,36 @@ while pctl.running:
 			elif event.type == sdl3.SDL_EVENT_WINDOW_DISPLAY_CHANGED:
 				# sdl3.SDL_WINDOWEVENT_DISPLAY_CHANGED logs new display ID as data1 (0 or 1 or 2...), it not width, and data 2 is always 0
 				pass
+			elif event.type == sdl3.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+				i_x = pointer(c_int(0))
+				i_y = pointer(c_int(0))
+				sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
+				window_size[0] = i_x.contents.value
+				window_size[1] = i_y.contents.value
+				auto_scale()
+				update_layout = True
+				gui.update = 2
+
 			elif event.type == sdl3.SDL_EVENT_WINDOW_RESIZED:
 				# sdl3.SDL_WINDOWEVENT_RESIZED logs width to data1 and height to data2
-				if event.window.data1 < 500:
-					logging.error("Window width is less than 500, grrr why does this happen, stupid bug")
-					sdl3.SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
-				elif restore_ignore_timer.get() > 1:  # Hacky
-					gui.update = 2
+				# if event.window.data1 < 500:
+				# 	logging.error("Window width is less than 500, grrr why does this happen, stupid bug")
+				# 	sdl3.SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
+				# elif restore_ignore_timer.get() > 1:  # Hacky
+				# 	gui.update = 2
+				#
+				# 	logical_size[0] = event.window.data1
+				# 	logical_size[1] = event.window.data2
+				#
+				# 	if gui.mode != 3:
+				# 		logical_size[0] = max(300, logical_size[0])
+				# 		logical_size[1] = max(300, logical_size[1])
 
-					logical_size[0] = event.window.data1
-					logical_size[1] = event.window.data2
-
-					if gui.mode != 3:
-						logical_size[0] = max(300, logical_size[0])
-						logical_size[1] = max(300, logical_size[1])
-
-					i_x = pointer(c_int(0))
-					i_y = pointer(c_int(0))
-					sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
-					window_size[0] = i_x.contents.value
-					window_size[1] = i_y.contents.value
-
-					auto_scale()
-					update_layout = True
-
+				gui.update = 2
+				logical_size[0] = event.window.data1
+				logical_size[1] = event.window.data2
+				#auto_scale()
+				#update_layout = True
 
 			elif event.type == sdl3.SDL_EVENT_WINDOW_MOUSE_ENTER:
 				#logging.info("ENTER")
@@ -43177,7 +43175,6 @@ while pctl.running:
 		sdl3.SDL_RenderClear(renderer)
 		sdl3.SDL_SetRenderTarget(renderer, gui.main_texture)
 		sdl3.SDL_RenderClear(renderer)
-
 		# perf_timer.set()
 		gui.update_on_drag = False
 		gui.pl_update_on_drag = False
@@ -43185,7 +43182,7 @@ while pctl.running:
 		# mouse_position[0], mouse_position[1] = input_sdl.mouse()
 		gui.showed_title = False
 
-		if not gui.mouse_in_window and not bottom_bar1.volume_bar_being_dragged and not bottom_bar1.volume_hit and not bottom_bar1.seek_hit:
+		if not gui.ext_drop_mode and not gui.mouse_in_window and not bottom_bar1.volume_bar_being_dragged and not bottom_bar1.volume_hit and not bottom_bar1.seek_hit:
 			mouse_position[0] = -300.
 			mouse_position[1] = -300.
 
@@ -44449,7 +44446,7 @@ while pctl.running:
 				rect = (gui.playlist_left, gui.panelY, gui.plw, window_size[1] - (gui.panelBY + gui.panelY))
 
 				if gui.ext_drop_mode and coll(rect):
-					ddt.rect_si(rect, [50, 230, 250, 255], round(5 * gui.scale))
+					ddt.rect_si(rect, [80, 200, 180, 255], round(3 * gui.scale))
 				fields.add(rect)
 
 				if gui.combo_mode and key_esc_press and is_level_zero():
