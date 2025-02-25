@@ -31,6 +31,9 @@ import sdl3
 
 from tauon.t_modules.t_extra import Timer, alpha_blend, coll_rect
 
+if TYPE_CHECKING:
+	from tauon.t_modules.t_main import Tauon
+
 
 try:
 	from jxlpy import JXLImagePlugin
@@ -69,12 +72,12 @@ else:
 
 class QuickThumbnail:
 
-	renderer: sdl3.SDL_Renderer | None = None
-	items: list[QuickThumbnail] = []
-	queue: list[QuickThumbnail] = []
-
-	def __init__(self) -> None:
-		self.rect = sdl3.FSDL_Rect(0., 0.)
+	def __init__(self, tauon: Tauon) -> None:
+		self.ddt      = tauon.ddt
+		self.renderer = tauon.renderer
+		self.items: list[QuickThumbnail] = []
+		self.queue: list[QuickThumbnail] = []
+		self.rect = sdl3.SDL_FRect(0., 0.)
 		self.texture = None
 		self.surface = None
 		self.size = 50
@@ -98,8 +101,7 @@ class QuickThumbnail:
 		im.thumbnail((width, height), Image.Resampling.LANCZOS)
 		im.save(g, "PNG")
 		g.seek(0)
-		wop = rw_from_object(g)
-		self.surface = IMG_Load_RW(wop, 0)
+		self.surface = self.ddt.load_image(g)
 		#self.items.append(self)
 		self.alive = True
 
@@ -399,6 +401,20 @@ class TDraw:
 	def rect_a(self, location_xy: list[int], size_wh: list[int], colour: tuple[int, int, int, int]) -> None:
 		self.rect((location_xy[0], location_xy[1], size_wh[0], size_wh[1]), colour)
 
+
+	def clear_rect(self, rectangle: tuple[int, int, int, int]) -> None:
+
+		sdl3.SDL_SetRenderDrawBlendMode(self.renderer, sdl3.SDL_BLENDMODE_NONE)
+		sdl3.SDL_SetRenderDrawColor(self.renderer, 0, 0, 0, 0)
+
+		self.sdlrect.x = float(rectangle[0])
+		self.sdlrect.y = float(rectangle[1])
+		self.sdlrect.w = float(rectangle[2])
+		self.sdlrect.h = float(rectangle[3])
+
+		sdl3.SDL_RenderFillRect(self.renderer, self.sdlrect)
+		sdl3.SDL_SetRenderDrawBlendMode(self.renderer, sdl3.SDL_BLENDMODE_BLEND)
+
 	def rect(self, rectangle: tuple[int, int, int, int], colour: tuple[int, int, int, int]) -> None:
 
 		sdl3.SDL_SetRenderDrawColor(self.renderer, colour[0], colour[1], colour[2], colour[3])
@@ -550,8 +566,6 @@ class TDraw:
 		if key:
 			force_cache = True
 
-		self.pretty_rect = None  # todo SDL3 upgrade fix me
-
 		self.was_truncated = False
 
 		max_x += 12  # Hack
@@ -629,8 +643,9 @@ class TDraw:
 			w = max_x + 1
 
 		data = ctypes.c_buffer(b"\x00" * (h * (w * 4)))
+		ptr = pointer(data)
 
-		if real_bg and False: # todo fix me for sdl3
+		if real_bg:
 			box = sdl3.SDL_Rect(x, y - self.get_y_offset(text, font, max_x, wrap), w, h)
 
 			if align == 1:
@@ -640,7 +655,10 @@ class TDraw:
 				box.x -= int(box.w / 2)
 
 			ssurf = sdl3.SDL_RenderReadPixels(self.renderer, box) #, sdl3.SDL_PIXELFORMAT_XRGB8888, ctypes.pointer(data), (w * 4))
-			data = ssurf.contents.pixels
+			ptr = ssurf.contents.pixels
+			size = w * h * 4
+			data_array = (ctypes.c_ubyte * size).from_address(ptr)
+			data = memoryview(data_array)
 
 		if alpha_bg:
 			surf = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_ARGB32, w, h)
@@ -722,10 +740,10 @@ class TDraw:
 		if alpha_bg:
 			#sdl3.SDL_surface = sdl3.SDL_CreateRGBSurfaceWithFormatFrom(ctypes.pointer(data), w, h, 32, w * 4, sdl3.SDL_PIXELFORMAT_ARGB8888)
 			format = sdl3.SDL_PIXELFORMAT_ARGB8888
-			surface = sdl3.SDL_CreateSurfaceFrom(w, h, format, ctypes.pointer(data), w * 4)
+			surface = sdl3.SDL_CreateSurfaceFrom(w, h, format, ptr, w * 4)
 		else:
 			format = sdl3.SDL_PIXELFORMAT_XRGB8888
-			surface = sdl3.SDL_CreateSurfaceFrom(w, h, format, ctypes.pointer(data), w * 4)
+			surface = sdl3.SDL_CreateSurfaceFrom(w, h, format, ptr, w * 4)
 
 		# Here the background colour is keyed out allowing lines to overlap slightly
 		if not real_bg and not alpha_bg:
