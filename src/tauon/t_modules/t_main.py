@@ -871,7 +871,7 @@ class Fonts:
 		self.panel_title = 213
 
 		self.side_panel_line1 = 214
-		self.side_panel_line2 = 13
+		self.side_panel_line2 = 313
 
 		self.bottom_panel_time = 212
 
@@ -1142,6 +1142,15 @@ class ColoursClass:
 		self.artist_bio_background = [27, 27, 27, 255]
 		self.artist_bio_text = [230, 230, 230, 255]
 
+	def apply_transparancy(self):
+		self.top_panel_background[3] = 140
+		self.side_panel_background[3] = 140
+		self.art_box[3] = 100
+		self.window_frame[3] = 100
+		self.bottom_panel_colour[3] = 200
+
+		# colours.playlist_panel_background[3] = 220
+		# colours.playlist_box_background  = [0, 0, 0, 100]
 	def post_config(self):
 
 		if self.box_thumb_background is None:
@@ -1285,6 +1294,7 @@ class TrackClass:
 		self.disc_number:  str = ""
 		self.disc_total:   str = ""
 		self.lyrics:       str = ""
+		self.synced:       str = ""
 
 		self.lfm_friend_likes = set()
 		self.lfm_scrobbles: int = 0
@@ -4553,7 +4563,8 @@ class Menu:
 		self.active = True
 
 class GallClass:
-	def __init__(self, size=250, save_out=True):
+	def __init__(self, tauon: Tauon, size: int = 250, save_out: bool = True):
+		self.quickthumbnail = tauon.quickthumbnail
 		self.gall = {}
 		self.size = size
 		self.queue = []
@@ -4581,8 +4592,8 @@ class GallClass:
 		# time.sleep(0.1)
 
 		if search_over.active:
-			while QuickThumbnail.queue:
-				img = QuickThumbnail.queue.pop(0)
+			while self.quickthumbnail.queue:
+				img = self.quickthumbnail.queue.pop(0)
 				response = urllib.request.urlopen(img.url, context=tls_context)
 				source_image = io.BytesIO(response.read())
 				img.read_and_thumbnail(source_image, img.size, img.size)
@@ -4827,6 +4838,25 @@ class ThumbTracks:
 	def __init__(self):
 		pass
 
+	def pixbuf(self, track: TrackClass) -> GdkPixbuf | None:
+
+		try:
+			source, offset = tauon.gall_ren.get_file_source(track)
+			if source is False:  # No art
+				return None
+			source_image = album_art_gen.get_source_raw(0, 0, track, subsource=source)
+			im = Image.open(source_image)
+			if im.mode != "RGB":
+				im = im.convert("RGB")
+			im.thumbnail((512, 512), Image.Resampling.LANCZOS)
+			width, height = im.size
+			data = im.tobytes()
+			pixbuf = GdkPixbuf.Pixbuf.new_from_data(data, GdkPixbuf.Colorspace.RGB, False, 8, width, height, width * 3)
+			return pixbuf
+		except:
+			logging.exception("Error create pixbuf of album art")
+			return None
+
 	def path(self, track: TrackClass) -> str:
 
 		source, offset = tauon.gall_ren.get_file_source(track)
@@ -4855,8 +4885,8 @@ class ThumbTracks:
 
 class Tauon:
 	"""Root class for everything Tauon"""
-	def __init__(self):
-
+	def __init__(self, renderer: sdl3.SDL_Renderer) -> None:
+		self.renderer = renderer
 		self.t_title = t_title
 		self.t_version = t_version
 		self.t_agent = t_agent
@@ -4873,6 +4903,7 @@ class Tauon:
 		self.lfm_scrobbler: LastScrob = lfm_scrobbler
 		self.star_store:    StarStore = star_store
 		self.gui:  GuiVar = gui
+		self.ddt: TDraw | None = None
 		self.prefs: Prefs = prefs
 		self.cache_directory:          Path = cache_directory
 		self.user_directory:    Path | None = user_directory
@@ -4890,8 +4921,8 @@ class Tauon:
 		self.msys = msys
 		self.TrackClass = TrackClass
 		self.pl_gen = pl_gen
-		self.gall_ren = GallClass(album_mode_art_size)
-		self.QuickThumbnail = QuickThumbnail
+		self.quickthumbnail = QuickThumbnail(self)
+		self.gall_ren = GallClass(self, album_mode_art_size)
 		self.thumb_tracks = ThumbTracks()
 		self.pl_to_id = pl_to_id
 		self.id_to_pl = id_to_pl
@@ -6393,6 +6424,7 @@ class TimedLyricsRen:
 			font_size = 17
 			spacing = round(23 * gui.scale)
 
+		bg = (bg[0], bg[1], bg[2], 255)
 		test_time = get_real_time()
 
 		if pctl.track_queue[pctl.queue_step] == index:
@@ -8086,6 +8118,8 @@ class AlbumArt:
 							if len(x_colours) > 4:
 								colours.playlist_box_background = x_colours[4] + (255,)
 
+				colours.playlist_panel_background = list(colours.playlist_panel_background)
+				colours.side_panel_background = list(colours.side_panel_background)
 				colours.queue_background = colours.side_panel_background
 				# Check artist text colour
 				if contrast_ratio(colours.artist_text, colours.playlist_panel_background) < 1.9:
@@ -8119,7 +8153,7 @@ class AlbumArt:
 					colours.title_text = choice
 					colours.title_playing = choice
 
-				if test_lumi(colours.side_panel_background) < 0.50:
+				if test_lumi(colours.side_panel_background) < 0.50 and not prefs.transparent_mode:
 					colours.side_bar_line1 = [25, 25, 25, 255]
 					colours.side_bar_line2 = [35, 35, 35, 255]
 				else:
@@ -8159,6 +8193,9 @@ class AlbumArt:
 				gui.temp_themes[track.album] = copy.deepcopy(colours)
 				colours = gui.temp_themes[track.album]
 				gui.theme_temp_current = track.album
+
+				if prefs.transparent_mode:
+					colours.apply_transparancy()
 
 			if theme_only:
 				source_image.close()
@@ -13272,17 +13309,17 @@ class TopPanel:
 			gui.update_on_drag = True
 
 		# Draw the background
-		sdl3.SDL_SetRenderDrawBlendMode(renderer, sdl3.SDL_BLENDMODE_NONE)
+		ddt.clear_rect((0, 0, window_size[0], gui.panelY))
 		ddt.rect((0, 0, window_size[0], gui.panelY), colours.top_panel_background)
-		sdl3.SDL_SetRenderDrawBlendMode(renderer, sdl3.SDL_BLENDMODE_BLEND)
+
 
 		if prefs.shuffle_lock and not gui.compact_bar:
 			colour = [250, 250, 250, 255]
 			if colours.lm:
 				colour = [10, 10, 10, 255]
-			text = _("Tauon Music Box SHUFFLE!")
+			text = _("Tauon SHUFFLE!")
 			if prefs.album_shuffle_lock_mode:
-				text = _("Tauon Music Box ALBUM SHUFFLE!")
+				text = _("ALBUM SHUFFLE")
 			ddt.text((window_size[0] // 2, 8 * gui.scale, 2), text, colour, 212, bg=colours.top_panel_background)
 		if gui.top_bar_mode2:
 			tr = pctl.playing_object()
@@ -13826,8 +13863,6 @@ class TopPanel:
 			ddt.text((x + self.tab_text_start_space, y + self.tab_text_y_offset), text, fg, self.tab_text_font, bg=bg)
 
 			# Drop pulse
-			if gui.ext_drop_mode and coll(rect):
-				ddt.rect_si(rect, [50, 230, 250, 255], round(3 * gui.scale))
 
 			if gui.pl_pulse and gui.drop_playlist_target == i:
 				if tab_pulse.render(x, y + self.height - bar_highlight_size, tab_width, bar_highlight_size, r=200,
@@ -13845,7 +13880,7 @@ class TopPanel:
 					else:
 						ddt.rect((x, y, bar_highlight_size, gui.panelY2), [80, 160, 200, 255])
 
-				elif quick_drag is True and pl_is_mut(i):
+				elif (quick_drag or gui.ext_drop_mode) is True and pl_is_mut(i):
 					ddt.rect((x, y + self.height - bar_highlight_size, tab_width, bar_highlight_size), [80, 200, 180, 255])
 			# Drag yellow line highlight if single track already in playlist
 			elif quick_drag and not point_proximity_test(gui.drag_source_position, mouse_position, 15 * gui.scale):
@@ -13876,7 +13911,7 @@ class TopPanel:
 
 		# Quick drag single track onto bar to create new playlist function and indicator
 		if prefs.tabs_on_top:
-			if quick_drag and mouse_position[0] > x and mouse_position[1] < gui.panelY and quick_d_timer.get() > 1:
+			if (quick_drag or gui.ext_drop_mode) and mouse_position[0] > x and mouse_position[1] < gui.panelY and quick_d_timer.get() > 1:
 				ddt.rect((x, y, 2 * gui.scale, gui.panelY2), [80, 200, 180, 255])
 
 				if mouse_up:
@@ -15864,7 +15899,7 @@ class MiniMode3:
 			off = round(4 * gui.scale)
 
 			drop_shadow.render(ins + off, ins + off, wid + off * 2, wid + off * 2)
-			ddt.rect((ins, ins, wid, wid), [20, 20, 20, 255])
+			ddt.rect((ins + 1, ins + 1, wid - 1, wid - 1), [20, 20, 20, 255])
 			album_art_gen.display(track, (ins, ins), (wid, wid))
 
 			line1c = [255, 255, 255, 255] #colours.mini_mode_text_1
@@ -16121,9 +16156,6 @@ class StandardPlaylist:
 
 		rect = (left, gui.panelY, width, window_size[1] - (gui.panelBY + gui.panelY))
 		ddt.rect(rect, colours.playlist_panel_background)
-
-		if gui.ext_drop_mode and coll(rect):
-			ddt.rect(rect, [255,0,0,255])
 
 		# This draws an optional background image
 		if pl_bg:
@@ -17226,6 +17258,7 @@ class ArtBox:
 	def draw(self, x, y, w, h, target_track=None, tight_border=False, default_border=None):
 
 		# Draw a background for whole area
+		ddt.clear_rect((x, y, w, h))
 		ddt.rect((x, y, w, h), colours.side_panel_background)
 		# ddt.rect_r((x, y, w ,h), [255, 0, 0, 200], True)
 
@@ -18804,7 +18837,7 @@ class PlaylistBox:
 			bg = [0, 0, 0, 0]
 			if prefs.transparent_mode:
 				bg = rgb_add_hls(colours.playlist_box_background, 0, 0.09, 0)
-				bg[3] = 255
+				bg = (bg[0], bg[1], bg[2], 255)
 
 			# Highlight if playlist selected (viewing)
 			if i == pctl.active_playlist_viewing or (tab_menu.active and tab_menu.reference == i):
@@ -18816,7 +18849,7 @@ class PlaylistBox:
 					bg = [0, 0, 0, 25]
 				if prefs.transparent_mode:
 					bg = rgb_add_hls(colours.playlist_box_background, 0, 0.03, 0)
-					bg[3] = 255
+					bg = (bg[0], bg[1], bg[2], 255)
 
 			# Highlight target playlist when tragging tracks over
 			if coll(
@@ -18873,7 +18906,7 @@ class PlaylistBox:
 			# # If mouse over
 			if hit:
 				# Draw indicator for dragging tracks
-				if quick_drag and pl_is_mut(i):
+				if (quick_drag or gui.ext_drop_mode) and pl_is_mut(i):
 					ddt.rect((tab_start + tab_width - self.indicate_w, yy, self.indicate_w, self.tab_h), [80, 200, 180, 255])
 
 				# Draw indicators for moving tab
@@ -18929,7 +18962,7 @@ class PlaylistBox:
 		fields.add(rect)
 
 		if coll(rect):
-			if quick_drag:
+			if quick_drag or gui.ext_drop_mode:
 				ddt.rect((tab_start, yy, tab_width, self.indicate_w), [80, 160, 200, 255])
 				if mouse_up:
 					drop_tracks_to_new_playlist(shift_selection)
@@ -20952,7 +20985,7 @@ class QueueBox:
 
 class MetaBox:
 
-	def l_panel(self, x, y, w, h, track, top_border=True):
+	def l_panel(self, x: int, y: int, w: int, h: int, track: TrackClass, top_border: bool = True) -> None:
 
 		if not track:
 			return
@@ -20994,9 +21027,9 @@ class MetaBox:
 		if (inp.mouse_click or right_click) and is_level_zero(False):
 			if coll(border_rect):
 				if inp.mouse_click:
-					album_art_gen.cycle_offset(target_track)
+					album_art_gen.cycle_offset(track)
 				if right_click:
-					picture_menu.activate(in_reference=target_track)
+					picture_menu.activate(in_reference=track)
 			elif coll(rect):
 				if inp.mouse_click:
 					pctl.show_current()
@@ -21009,7 +21042,7 @@ class MetaBox:
 
 		fields.add(border_rect)
 		if coll(border_rect) and is_level_zero(True):
-			showc = album_art_gen.get_info(target_track)
+			showc = album_art_gen.get_info(track)
 			art_metadata_overlay(
 				art_rect[0] + art_rect[2] + 2 * gui.scale, art_rect[1] + art_rect[3] + 12 * gui.scale, showc)
 
@@ -21030,8 +21063,10 @@ class MetaBox:
 
 	def lyrics(self, x, y, w, h, track: TrackClass):
 
-		ddt.rect((x, y, w, h), colours.side_panel_background)
-		ddt.text_background_colour = colours.side_panel_background
+		bg = colours.side_panel_background
+		bg = (bg[0], bg[1], bg[2], 255)
+		ddt.rect((x, y, w, h), bg)
+		ddt.text_background_colour = bg
 
 		if not track:
 			return
@@ -21089,7 +21124,11 @@ class MetaBox:
 
 	def draw(self, x, y, w, h, track=None):
 
-		ddt.rect((x, y, w, h), colours.side_panel_background)
+		bg = colours.side_panel_background
+		#bg = (bg[0], bg[1], bg[2], 255)
+		ddt.text_background_colour = bg
+		ddt.clear_rect((x, y, w, h))
+		ddt.rect((x, y, w, h), bg)
 
 		if not track:
 			return
@@ -23059,7 +23098,7 @@ class Undo:
 					pctl.playlist_view_position = i
 					logging.debug("Position changed by undo")
 		elif job[0] == "ptt":
-			j, fr, fr_s, fr_scr, so, to_s, to_scr = job
+			j, fr, fr_s, fr_scr, to, to_s, to_scr = job
 			star_store.insert(fr.index, fr_s)
 			star_store.insert(to.index, to_s)
 			to.lfm_scrobbles = to_scr
@@ -23076,8 +23115,8 @@ class Undo:
 		uid = pctl.multi_playlist[pl_index].uuid_int
 		self.e.append(("tracks", uid, indis))
 
-	def bk_playtime_transfer(self, fr, fr_s, fr_scr, so, to_s, to_scr) -> None:
-		self.e.append(("ptt", fr, fr_s, fr_scr, so, to_s, to_scr))
+	def bk_playtime_transfer(self, fr, fr_s, fr_scr, to, to_s, to_scr) -> None:
+		self.e.append(("ptt", fr, fr_s, fr_scr, to, to_s, to_scr))
 
 class GetSDLInput:
 	def __init__(self) -> None:
@@ -23935,7 +23974,7 @@ def load_prefs():
 		"string", "encode-output-dir", prefs.custom_encoder_output,
 		"E.g. \"/home/example/music/output\". If left blank, encode-output in home music dir will be used.")
 	if prefs.custom_encoder_output:
-		prefs.encoder_output = prefs.custom_encoder_output
+		prefs.encoder_output = Path(prefs.custom_encoder_output)
 	prefs.download_dir1 = cf.sync_add(
 		"string", "add_download_directory", prefs.download_dir1,
 		"Add another folder to monitor in addition to home downloads and music.")
@@ -24085,19 +24124,12 @@ def load_prefs():
 def auto_scale() -> None:
 
 	old = prefs.scale_want
-
 	if prefs.x_scale:
-		if True: #sss.subsystem in (SDL_SYSWM_WAYLAND, SDL_SYSWM_COCOA, SDL_SYSWM_UNKNOWN):
-			prefs.scale_want = window_size[0] / logical_size[0]
-			if old != prefs.scale_want:
-				logging.info("Applying scale based on buffer size")
-		# elif sss.subsystem == SDL_SYSWM_X11:
-		# 	if xdpi > 40:
-		# 		prefs.scale_want = xdpi / 96
-		# 		if old != prefs.scale_want:
-		# 			logging.info("Applying scale based on xft setting")
+		prefs.scale_want = window_size[0] / logical_size[0]
 
 	prefs.scale_want = round(round(prefs.scale_want / 0.05) * 0.05, 2)
+	if prefs.x_scale and old != prefs.scale_want:
+		logging.info("Applying scale based on buffer size")
 
 	if prefs.scale_want == 0.95:
 		prefs.scale_want = 1.0
@@ -24112,12 +24144,12 @@ def auto_scale() -> None:
 		logging.info(f"Using UI scale: {prefs.scale_want}")
 
 	if prefs.scale_want < 0.5:
-		prefs.scale_want = 1.0
+		prefs.scale_want = 0.5
 
-	if window_size[0] < (560 * prefs.scale_want) * 0.9 or window_size[1] < (330 * prefs.scale_want) * 0.9:
-		logging.info("Window overscale!")
-		show_message(_("Detected unsuitable UI scaling."), _("Scaling setting reset to 1x"))
-		prefs.scale_want = 1.0
+	# if window_size[0] < (560 * prefs.scale_want) * 0.9 or window_size[1] < (330 * prefs.scale_want) * 0.9:
+	# 	logging.info("Window overscale!")
+	# 	show_message(_("Detected unsuitable UI scaling."), _("Scaling setting reset to 1x"))
+	# 	prefs.scale_want = 1.0
 
 def scale_assets(scale_want: int, force: bool = False) -> None:
 	global scaled_asset_directory
@@ -24892,13 +24924,13 @@ def notify_song(notify_of_end: bool = False, delay: float = 0.0) -> None:
 		if not track or not (track.title or track.artist or track.album or track.filename):
 			return  # only display if we have at least one piece of metadata avaliable
 
-		i_path = ""
-		try:
-			if not notify_of_end:
-				i_path = tauon.thumb_tracks.path(track)
-		except Exception:
-			logging.exception(track.fullpath.encode("utf-8", "replace").decode("utf-8"))
-			logging.error("Thumbnail error")
+		# i_path = ""
+		# try:
+		# 	if not notify_of_end:
+		# 		i_path = tauon.thumb_tracks.path(track)
+		# except Exception:
+		# 	logging.exception(track.fullpath.encode("utf-8", "replace").decode("utf-8"))
+		# 	logging.error("Thumbnail error")
 
 		top_line = track.title
 
@@ -24921,7 +24953,12 @@ def notify_song(notify_of_end: bool = False, delay: float = 0.0) -> None:
 			top_line = (_("End of playlist"))
 			id = None
 
-		song_notification.update(top_line, bottom_line, i_path)
+		song_notification.update(top_line, bottom_line) #, i_path)
+		tauon.notify_image = tauon.thumb_tracks.pixbuf(track)
+		if tauon.notify_image:
+			song_notification.set_image_from_pixbuf(tauon.notify_image)
+		else:
+			song_notification.update(top_line, bottom_line, None)
 
 		shoot_dl = threading.Thread(target=notify_song_fire, args=([song_notification, delay, id]))
 		shoot_dl.daemon = True
@@ -25647,6 +25684,8 @@ def prime_fonts():
 	ddt.prime_font(standard_font, 13, 516)
 
 def find_synced_lyric_data(track: TrackClass) -> list[str] | None:
+	if track.synced:
+		return track.synced.splitlines()
 	if track.is_network:
 		return None
 
@@ -26511,6 +26550,11 @@ def toggle_shuffle_layout(albums=False):
 		if not gui.shuffle_was_showcase:
 			exit_combo()
 
+def toggle_shuffle_layout_deco():
+	if not prefs.shuffle_lock:
+		return [colours.menu_text, colours.menu_background, _("Shuffle Lockdown")]
+	return [colours.menu_text, colours.menu_background, _("Exit Shuffle Lockdown")]
+
 def toggle_shuffle_layout_albums():
 	toggle_shuffle_layout(albums=True)
 
@@ -27019,10 +27063,14 @@ def get_lyric_fire(track_object: TrackClass, silent: bool = False) -> str | None
 			func = lyric_sources[name]
 
 			try:
-				lyrics = func(s_artist, s_title)
-				if lyrics:
-					logging.info(f"Found lyrics from {name}")
-					track_object.lyrics = lyrics
+				lyrics, synced = func(s_artist, s_title)
+				if lyrics or synced:
+					if lyrics:
+						logging.info(f"Found lyrics from {name}")
+						track_object.lyrics = lyrics
+					if synced:
+						logging.info(f"Found synced lyrics")
+						track_object.synced = synced
 					found = True
 					break
 			except Exception:
@@ -27110,7 +27158,7 @@ def toggle_synced_lyrics_deco(track):
 	return [line_colour, colours.menu_background, text]
 
 def paste_lyrics_deco():
-	if SDL_HasClipboardText():
+	if sdl3.SDL_HasClipboardText():
 		line_colour = colours.menu_text
 	else:
 		line_colour = colours.menu_text_disabled
@@ -27118,8 +27166,8 @@ def paste_lyrics_deco():
 	return [line_colour, colours.menu_background, None]
 
 def paste_lyrics(track_object: TrackClass):
-	if SDL_HasClipboardText():
-		clip = SDL_GetClipboardText()
+	if sdl3.SDL_HasClipboardText():
+		clip = sdl3.SDL_GetClipboardText()
 		#logging.info(clip)
 		track_object.lyrics = clip.decode("utf-8")
 	else:
@@ -32695,7 +32743,7 @@ def standard_size():
 	album_mode = False
 	gui.rsp = True
 	window_size = window_default_size
-	SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
+	sdl3.SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
 
 	gui.rspw = 80 + int(window_size[0] * 0.18)
 	update_layout = True
@@ -34035,8 +34083,8 @@ def hit_discord() -> None:
 		discord_t.daemon = True
 		discord_t.start()
 
-def open_donate_link() -> None:
-	webbrowser.open("https://github.com/sponsors/Taiko2k", new=2, autoraise=True)
+# def open_donate_link() -> None:
+# 	webbrowser.open("https://github.com/sponsors/Taiko2k", new=2, autoraise=True)
 
 def stop_quick_add() -> None:
 	pctl.quick_add_target = None
@@ -34147,7 +34195,7 @@ def toggle_playlist_break() -> None:
 	pctl.multi_playlist[pctl.active_playlist_viewing].hide_title ^= 1
 	gui.pl_update = 1
 
-def transcode_single(item: list[tuple[int, str]], manual_directory: str | None = None, manual_name: str | None = None):
+def transcode_single(item: list[tuple[int, str]], manual_directory: Path | None = None, manual_name: str | None = None):
 	global core_use
 	global dl_use
 
@@ -34194,9 +34242,7 @@ def transcode_single(item: list[tuple[int, str]], manual_directory: str | None =
 
 	out_line = encode_track_name(t)
 
-	if not (output / _("output")).exists():
-		(output / _("output")).mkdir()
-	target_out = str(output / _("output") / (str(track) + "." + codec))
+	target_out = str(output / f"output{track}.{codec})")
 
 	command = tauon.get_ffmpeg() + " "
 
@@ -35742,7 +35788,7 @@ def worker1():
 					q = 0
 					while True:
 						if core_use < cores and q < len(folder_items):
-							agg = [[folder_items[q], folder_name]]
+							agg = [[folder_items[q], Path(folder_name)]]
 							if agg not in dones:
 								core_use += 1
 								dones.append(agg)
@@ -36784,18 +36830,9 @@ def set_mini_mode():
 
 	sdl3.SDL_SetWindowResizable(t_window, False)
 	sdl3.SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
-	sdl3.SDL_SyncWindow(t_window)
-	time.sleep(0.05)
 
 	if mini_mode.save_position:
 		sdl3.SDL_SetWindowPosition(t_window, mini_mode.save_position[0], mini_mode.save_position[1])
-
-	sdl3.SDL_PumpEvents()
-	i_x = pointer(c_int(0))
-	i_y = pointer(c_int(0))
-	sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
-	window_size[0] = i_x.contents.value
-	window_size[1] = i_y.contents.value
 
 	gui.update += 3
 
@@ -36829,7 +36866,6 @@ def restore_full_mode():
 	gui.mode = 1
 
 	sdl3.SDL_SyncWindow(t_window)
-	time.sleep(0.05)
 	sdl3.SDL_PumpEvents()
 
 	global mouse_down
@@ -36847,11 +36883,6 @@ def restore_full_mode():
 		logical_size[1] = i_y.contents.value
 
 		#logging.info(window_size)
-
-	sdl3.SDL_PumpEvents()
-	sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
-	window_size[0] = i_x.contents.value
-	window_size[1] = i_y.contents.value
 
 	gui.update_layout()
 	if prefs.art_bg:
@@ -37467,7 +37498,7 @@ def dismiss_dl():
 	dl_mon.done.update(dl_mon.watching)
 	dl_mon.watching.clear()
 
-def download_img(link: str, target_folder: str, track: TrackClass) -> None:
+def download_img(link: str, target_dir: str, track: TrackClass) -> None:
 	try:
 		response = urllib.request.urlopen(link, context=tls_context)
 		info = response.info()
@@ -39041,7 +39072,7 @@ elif not msys and not macos:
 		logging.exception("Failed importing gi Notify 0.7, will try 0.8")
 		gi.require_version("Notify", "0.8")
 	from gi.repository import Notify
-
+	from gi.repository import GdkPixbuf
 
 wayland = True
 if os.environ.get("SDL_VIDEODRIVER") != "wayland":
@@ -40128,11 +40159,9 @@ lb = ListenBrainz()
 
 lfm_scrobbler = LastScrob()
 
-QuickThumbnail.renderer = renderer
-
 strings = Strings()
 
-tauon = Tauon()
+tauon = Tauon(renderer=renderer)
 
 signal.signal(signal.SIGINT, signal_handler)
 
@@ -40311,6 +40340,7 @@ if (system == "Windows" or msys) and taskbar_progress:
 		logging.warning("Could not find TaskbarLib.tlb")
 
 ddt = TDraw(renderer)
+tauon.ddt = ddt
 ddt.scale = gui.scale
 ddt.force_subpixel_text = prefs.force_subpixel_text
 
@@ -41318,9 +41348,9 @@ else:
 
 x_menu.add(MenuItem("LFM", lastfm.toggle, last_fm_menu_deco, icon=listen_icon, show_test=lastfm_menu_test))
 
-x_menu.add(MenuItem(_("Exit Shuffle Lockdown"), toggle_shuffle_layout, show_test=exit_shuffle_layout))
+x_menu.add(MenuItem(_("Exit Shuffle Lockdown"), toggle_shuffle_layout, toggle_shuffle_layout_deco)) #show_test=exit_shuffle_layout))
 
-x_menu.add(MenuItem(_("Donate"), open_donate_link))
+#x_menu.add(MenuItem(_("Donate"), open_donate_link))
 
 x_menu.add(MenuItem(_("Exit"), tauon.exit, hint="Alt+F4", set_ref="User clicked menu exit button", pass_ref=+True))
 
@@ -41917,6 +41947,8 @@ while pctl.running:
 			mouse_moved = True
 			gui.mouse_unknown = False
 			gui.ext_drop_mode = True
+			gui.pl_update += 1
+			gui.update += 2
 		elif event.type == sdl3.SDL_EVENT_DROP_COMPLETE:
 			gui.ext_drop_mode = False
 		elif event.type == sdl3.SDL_EVENT_DROP_FILE:
@@ -42146,30 +42178,36 @@ while pctl.running:
 			elif event.type == sdl3.SDL_EVENT_WINDOW_DISPLAY_CHANGED:
 				# sdl3.SDL_WINDOWEVENT_DISPLAY_CHANGED logs new display ID as data1 (0 or 1 or 2...), it not width, and data 2 is always 0
 				pass
+			elif event.type == sdl3.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+				i_x = pointer(c_int(0))
+				i_y = pointer(c_int(0))
+				sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
+				window_size[0] = i_x.contents.value
+				window_size[1] = i_y.contents.value
+				auto_scale()
+				update_layout = True
+				gui.update = 2
+
 			elif event.type == sdl3.SDL_EVENT_WINDOW_RESIZED:
 				# sdl3.SDL_WINDOWEVENT_RESIZED logs width to data1 and height to data2
-				if event.window.data1 < 500:
-					logging.error("Window width is less than 500, grrr why does this happen, stupid bug")
-					sdl3.SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
-				elif restore_ignore_timer.get() > 1:  # Hacky
-					gui.update = 2
+				# if event.window.data1 < 500:
+				# 	logging.error("Window width is less than 500, grrr why does this happen, stupid bug")
+				# 	sdl3.SDL_SetWindowSize(t_window, logical_size[0], logical_size[1])
+				# elif restore_ignore_timer.get() > 1:  # Hacky
+				# 	gui.update = 2
+				#
+				# 	logical_size[0] = event.window.data1
+				# 	logical_size[1] = event.window.data2
+				#
+				# 	if gui.mode != 3:
+				# 		logical_size[0] = max(300, logical_size[0])
+				# 		logical_size[1] = max(300, logical_size[1])
 
-					logical_size[0] = event.window.data1
-					logical_size[1] = event.window.data2
-
-					if gui.mode != 3:
-						logical_size[0] = max(300, logical_size[0])
-						logical_size[1] = max(300, logical_size[1])
-
-					i_x = pointer(c_int(0))
-					i_y = pointer(c_int(0))
-					sdl3.SDL_GetWindowSizeInPixels(t_window, i_x, i_y)
-					window_size[0] = i_x.contents.value
-					window_size[1] = i_y.contents.value
-
-					auto_scale()
-					update_layout = True
-
+				gui.update = 2
+				logical_size[0] = event.window.data1
+				logical_size[1] = event.window.data2
+				#auto_scale()
+				#update_layout = True
 
 			elif event.type == sdl3.SDL_EVENT_WINDOW_MOUSE_ENTER:
 				#logging.info("ENTER")
@@ -43123,7 +43161,6 @@ while pctl.running:
 
 			except Exception:
 				logging.exception("Error loading theme file")
-				raise
 				show_message(_("Error loading theme file"), "", mode="warning")
 
 		if theme == 0:
@@ -43135,13 +43172,7 @@ while pctl.running:
 			deco.unload()
 
 		if prefs.transparent_mode:
-			colours.top_panel_background[3] = 80
-			colours.side_panel_background[3] = 80
-			colours.art_box[3] = 100
-			colours.window_frame[3] = 100
-			colours.bottom_panel_colour[3] = 200
-			#colours.playlist_panel_background[3] = 220
-			#colours.playlist_box_background  = [0, 0, 0, 100]
+			colours.apply_transparancy()
 
 		prefs.theme_name = gui.theme_name
 
@@ -43171,13 +43202,15 @@ while pctl.running:
 			reset_render = False
 
 		sdl3.SDL_SetRenderTarget(renderer, None)
+		sdl3.SDL_SetRenderDrawBlendMode(renderer, sdl3.SDL_BLENDMODE_NONE)
 		sdl3.SDL_SetRenderDrawColor(
-			renderer, colours.top_panel_background[0], colours.top_panel_background[1],
-			colours.top_panel_background[2], colours.top_panel_background[3])
+			renderer, 0, 0,
+			0, 0)
+		sdl3.SDL_RenderClear(renderer)
+		sdl3.SDL_SetRenderDrawBlendMode(renderer, sdl3.SDL_BLENDMODE_BLEND)
 		sdl3.SDL_RenderClear(renderer)
 		sdl3.SDL_SetRenderTarget(renderer, gui.main_texture)
 		sdl3.SDL_RenderClear(renderer)
-
 		# perf_timer.set()
 		gui.update_on_drag = False
 		gui.pl_update_on_drag = False
@@ -43185,7 +43218,7 @@ while pctl.running:
 		# mouse_position[0], mouse_position[1] = input_sdl.mouse()
 		gui.showed_title = False
 
-		if not gui.mouse_in_window and not bottom_bar1.volume_bar_being_dragged and not bottom_bar1.volume_hit and not bottom_bar1.seek_hit:
+		if not gui.ext_drop_mode and not gui.mouse_in_window and not bottom_bar1.volume_bar_being_dragged and not bottom_bar1.volume_hit and not bottom_bar1.seek_hit:
 			mouse_position[0] = -300.
 			mouse_position[1] = -300.
 
@@ -44449,7 +44482,7 @@ while pctl.running:
 				rect = (gui.playlist_left, gui.panelY, gui.plw, window_size[1] - (gui.panelBY + gui.panelY))
 
 				if gui.ext_drop_mode and coll(rect):
-					ddt.rect_si(rect, [50, 230, 250, 255], round(5 * gui.scale))
+					ddt.rect_si(rect, [80, 200, 180, 255], round(3 * gui.scale))
 				fields.add(rect)
 
 				if gui.combo_mode and key_esc_press and is_level_zero():
@@ -44715,6 +44748,7 @@ while pctl.running:
 						y = gui.panelY
 						w = gui.rspw
 
+						ddt.clear_rect((x, y, w, h))
 						ddt.rect((x, y, w, h), colours.side_panel_background)
 						test_auto_lyrics(target_track)
 						# Draw lyrics if avaliable
@@ -46304,10 +46338,12 @@ while pctl.running:
 
 		sdl3.SDL_SetRenderTarget(renderer, None)
 		if not gui.present:
+			sdl3.SDL_SetRenderDrawBlendMode(renderer, sdl3.SDL_BLENDMODE_NONE)
 			sdl3.SDL_SetRenderDrawColor(
-				renderer, colours.top_panel_background[0], colours.top_panel_background[1],
-				colours.top_panel_background[2], colours.top_panel_background[3])
+				renderer, 0, 0,
+				0, 0)
 			sdl3.SDL_RenderClear(renderer)
+			sdl3.SDL_SetRenderDrawBlendMode(renderer, sdl3.SDL_BLENDMODE_BLEND)
 			sdl3.SDL_RenderTexture(renderer, gui.main_texture, None, gui.tracklist_texture_rect)
 			gui.present = True
 
