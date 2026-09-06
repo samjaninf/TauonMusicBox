@@ -67,6 +67,14 @@ a.binaries = [
 	for entry in a.binaries
 	if not Path(entry[0]).name.startswith("libpipewire-0.3.so")
 ]
+# Remove libfontconfig.so.1 to use the host's libfontconfig
+# Otherwise we end up mismatching with newer config files and with things like libass.so
+# For more details see: https://github.com/Taiko2k/Tauon/issues/2323
+a.binaries = [
+	entry
+	for entry in a.binaries
+	if not Path(entry[0]).name.startswith("libfontconfig.so")
+]
 pyz = PYZ(a.pure)
 
 exe = EXE(
